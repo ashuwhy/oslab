@@ -258,6 +258,9 @@ void player_parent_process() {
     }
   }
 
+  // give children a moment to print their startup messages
+  sleep(1);
+
   printf("+++ PP: All players ready\n");
   printf("-----------------------------------------------------\n\n");
   fflush(stdout);
