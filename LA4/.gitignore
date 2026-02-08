@@ -1,0 +1,5 @@
+*.dSYM/
+board
+players
+ludo
+.DS_Store
