@@ -4,6 +4,9 @@
  *
  * This process creates shared memory, spawns board and player processes,
  * and coordinates the game through signals and pipes.
+ *
+ * Author: Ashutosh Sharma
+ * Roll: 23CS10005
  */
 
 #include <errno.h>
@@ -27,7 +30,7 @@
 #define SHM_KEY_BOARD 0x1234
 #define SHM_KEY_PLAYERS 0x5678
 
-// Global variables for cleanup
+// global variables for cleanup
 int shm_id_board = -1;
 int shm_id_players = -1;
 int *shm_board = NULL;
@@ -36,14 +39,13 @@ pid_t xbp_pid = -1; // XBP (xterm for board)
 pid_t xpp_pid = -1; // XPP (xterm for players)
 pid_t bp_pid = -1;  // BP (board process, child of XBP)
 pid_t pp_pid = -1;  // PP (player-parent, child of XPP)
-int pipe_fd = -1;   // Pipe for BP/PP -> CP communication (Read end)
+int pipe_fd = -1;
 int num_players = 0;
 volatile sig_atomic_t game_over = 0;
 
-// Signal handler for SIGINT
 void sigint_handler(int sig) { game_over = 1; }
 
-// Check if xterm is available
+// check if xterm is available
 int check_xterm() {
   if (system("which xterm > /dev/null 2>&1") != 0) {
     fprintf(stderr, "Error: xterm is not installed or not in PATH.\n");
@@ -53,7 +55,7 @@ int check_xterm() {
   return 0;
 }
 
-// Read board configuration from ludo.txt
+// read board configuration from ludo.txt
 int read_board_from_file(const char *filename) {
   FILE *fp = fopen(filename, "r");
   if (fp == NULL) {
@@ -61,7 +63,7 @@ int read_board_from_file(const char *filename) {
     return -1;
   }
 
-  // Clear board
+  // clear board
   for (int i = 0; i < BOARD_SIZE; i++) {
     shm_board[i] = 0;
   }
@@ -81,11 +83,11 @@ int read_board_from_file(const char *filename) {
     }
 
     if (type == 'L') {
-      // Ladder: store (top - bottom)
+      // ladder: store (top - bottom)
       shm_board[from] = to - from;
       printf("  Ladder: %d -> %d\n", from, to);
     } else if (type == 'S') {
-      // Snake: store (tail - mouth)
+      // snake: store (tail - mouth)
       shm_board[from] = to - from;
       printf("  Snake: %d -> %d\n", from, to);
     }
@@ -95,9 +97,9 @@ int read_board_from_file(const char *filename) {
   return 0;
 }
 
-// Create shared memory segments
+// create shared memory segments
 int create_shared_memory() {
-  // Create board shared memory
+  // create board shared memory
   shm_id_board = shmget(SHM_KEY_BOARD, BOARD_SIZE * sizeof(int),
                         IPC_CREAT | IPC_EXCL | 0666);
   if (shm_id_board < 0) {
@@ -111,7 +113,7 @@ int create_shared_memory() {
     return -1;
   }
 
-  // Create players shared memory (num_players + 1 for active count)
+  // create players shared memory (num_players + 1 for active count)
   shm_id_players = shmget(SHM_KEY_PLAYERS, (MAX_PLAYERS + 1) * sizeof(int),
                           IPC_CREAT | IPC_EXCL | 0666);
   if (shm_id_players < 0) {
@@ -125,51 +127,45 @@ int create_shared_memory() {
     return -1;
   }
 
-  // Initialize player positions to 0 (home)
+  // initialize player positions to 0 (home)
   for (int i = 0; i < MAX_PLAYERS; i++) {
     shm_players[i] = 0;
   }
-  shm_players[num_players] = num_players; // Active player count
+  shm_players[num_players] = num_players; // active player count
 
   return 0;
 }
 
-// Cleanup shared memory and processes
+// cleanup shared memory and processes
 void cleanup() {
   printf("\n+++ CP: Cleaning up...\n");
 
-  // Send SIGUSR2 to PP to terminate players
   if (pp_pid > 0) {
     printf("+++ CP: Sending SIGUSR2 to PP (PID %d)\n", pp_pid);
     kill(pp_pid, SIGUSR2);
   }
 
-  // Wait for XPP to terminate
   if (xpp_pid > 0) {
     printf("+++ CP: Waiting for XPP to terminate...\n");
     waitpid(xpp_pid, NULL, 0);
     printf("+++ CP: XPP terminated\n");
   }
 
-  // Send SIGUSR2 to BP
   if (bp_pid > 0) {
     printf("+++ CP: Sending SIGUSR2 to BP (PID %d)\n", bp_pid);
     kill(bp_pid, SIGUSR2);
   }
 
-  // Wait for XBP to terminate
   if (xbp_pid > 0) {
     printf("+++ CP: Waiting for XBP to terminate...\n");
     waitpid(xbp_pid, NULL, 0);
     printf("+++ CP: XBP terminated\n");
   }
 
-  // Close pipe and remove FIFO
   if (pipe_fd != -1)
     close(pipe_fd);
   unlink(FIFO_NAME);
 
-  // Detach shared memory
   if (shm_board != NULL && shm_board != (int *)-1) {
     shmdt(shm_board);
   }
@@ -177,7 +173,6 @@ void cleanup() {
     shmdt(shm_players);
   }
 
-  // Remove shared memory segments
   if (shm_id_board >= 0) {
     shmctl(shm_id_board, IPC_RMID, NULL);
     printf("+++ CP: Removed board shared memory\n");
@@ -190,7 +185,7 @@ void cleanup() {
   printf("+++ CP: Cleanup complete. Goodbye!\n");
 }
 
-// Spawn board process via xterm
+// spawn board process via xterm
 pid_t spawn_board_xterm() {
   pid_t pid = fork();
   if (pid < 0) {
@@ -199,7 +194,7 @@ pid_t spawn_board_xterm() {
   }
 
   if (pid == 0) {
-    // Child - exec xterm with board process
+    // child - exec xterm with board process
     char shm_board_str[32], shm_players_str[32], num_players_str[16];
     sprintf(shm_board_str, "%d", shm_id_board);
     sprintf(shm_players_str, "%d", shm_id_players);
@@ -216,7 +211,7 @@ pid_t spawn_board_xterm() {
   return pid;
 }
 
-// Spawn players process via xterm
+// spawn players process via xterm
 pid_t spawn_players_xterm() {
   pid_t pid = fork();
   if (pid < 0) {
@@ -225,7 +220,7 @@ pid_t spawn_players_xterm() {
   }
 
   if (pid == 0) {
-    // Child - exec xterm with players process
+    // child - exec xterm with players process
     char shm_board_str[32], shm_players_str[32], num_players_str[16];
     char bp_pid_str[16];
     sprintf(shm_board_str, "%d", shm_id_board);
@@ -244,7 +239,7 @@ pid_t spawn_players_xterm() {
   return pid;
 }
 
-// Helper to read a line from pipe (byte-by-byte for safety)
+// helper to read a line from pipe (byte-by-byte for safety)
 int read_line_from_fifo(int fd, char *buffer, int max_len) {
   int i = 0;
   char c;
@@ -267,24 +262,24 @@ int read_line_from_fifo(int fd, char *buffer, int max_len) {
   return i;
 }
 
-// Wait for acknowledgment from BP via pipe
+// wait for acknowledgment from BP via pipe
 void wait_for_ack() {
   char buffer[64];
-  // Blocking read until a line is available
+  // blocking read until a line is available
   if (read_line_from_fifo(pipe_fd, buffer, sizeof(buffer)) > 0) {
     if (strncmp(buffer, "ACK", 3) != 0) {
-      // Note: In a robust app we might handle unexpected msg,
+      // note: in a robust app we might handle unexpected msg,
       // but here we just proceed.
-      // fprintf(stderr, "CP: Warning, expected ACK, got '%s'\n", buffer);
+      fprintf(stderr, "CP: Warning, expected ACK, got '%s'\n", buffer);
     }
   }
 }
 
-// Read PID from pipe
+// read PID from pipe
 pid_t read_pid_from_pipe() {
   char buffer[64];
   if (read_line_from_fifo(pipe_fd, buffer, sizeof(buffer)) > 0) {
-    // Parse PID: format is "PID:12345"
+    // parse PID: format is "PID:12345"
     if (strncmp(buffer, "PID:", 4) == 0) {
       return (pid_t)atoi(buffer + 4);
     }
@@ -306,7 +301,7 @@ int main(int argc, char *argv[]) {
   int delay_ms = 1000;
   int autoplay = 0;
 
-  // Parse arguments
+  // parse arguments
   if (argc < 2) {
     print_usage(argv[0]);
     return 1;
@@ -326,23 +321,20 @@ int main(int argc, char *argv[]) {
          num_players);
   printf("------------------------------------------------------\n\n");
 
-  // Set up signal handlers
   signal(SIGINT, sigint_handler);
   signal(SIGPIPE, SIG_IGN);
 
-  // Check for xterm
+  // check for xterm
   if (check_xterm() < 0)
     return 1;
 
-  // Create named pipe for BP/PP -> CP communication
-  unlink(FIFO_NAME); // Remove if exists
+  unlink(FIFO_NAME); // remove if exists
   if (mkfifo(FIFO_NAME, 0666) < 0) {
     perror("mkfifo");
     return 1;
   }
   printf("+++ CP: Created FIFO %s\n", FIFO_NAME);
 
-  // Create shared memory
   printf("+++ CP: Creating shared memory segments...\n");
   if (create_shared_memory() < 0) {
     fprintf(stderr, "Failed to create shared memory\n");
@@ -351,7 +343,6 @@ int main(int argc, char *argv[]) {
   printf("+++ CP: Shared memory created (MB=%d, MP=%d)\n", shm_id_board,
          shm_id_players);
 
-  // Read board from ludo.txt
   printf("+++ CP: Reading board from ludo.txt...\n");
   if (read_board_from_file("ludo.txt") < 0) {
     fprintf(stderr, "Failed to read board file\n");
@@ -360,7 +351,6 @@ int main(int argc, char *argv[]) {
   }
   printf("+++ CP: Board initialized\n");
 
-  // Spawn board xterm (XBP -> BP)
   printf("+++ CP: Spawning board window...\n");
   xbp_pid = spawn_board_xterm();
   if (xbp_pid < 0) {
@@ -369,7 +359,6 @@ int main(int argc, char *argv[]) {
   }
   printf("+++ CP: XBP spawned (PID %d)\n", xbp_pid);
 
-  // Open FIFO for reading (blocks until writer connects)
   printf("+++ CP: Waiting for Board process to connect...\n");
   pipe_fd = open(FIFO_NAME, O_RDONLY);
   if (pipe_fd < 0) {
@@ -378,11 +367,9 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  // Read BP's PID from pipe
   bp_pid = read_pid_from_pipe();
   printf("+++ CP: BP started (PID %d)\n", bp_pid);
 
-  // Spawn players xterm (XPP -> PP -> A, B, C, ...)
   printf("+++ CP: Spawning players window...\n");
   xpp_pid = spawn_players_xterm();
   if (xpp_pid < 0) {
@@ -391,11 +378,9 @@ int main(int argc, char *argv[]) {
   }
   printf("+++ CP: XPP spawned (PID %d)\n", xpp_pid);
 
-  // Read PP's PID from pipe
   pp_pid = read_pid_from_pipe();
   printf("+++ CP: PP started (PID %d)\n", pp_pid);
 
-  // Wait for initial board print acknowledgment
   printf("+++ CP: Waiting for initial board...\n");
   wait_for_ack();
   printf("+++ CP: Game ready!\n\n");
@@ -403,28 +388,22 @@ int main(int argc, char *argv[]) {
   printf("Commands: next, delay <ms>, autoplay, quit\n");
   printf("-----------------------------------------------------\n\n");
 
-  // Game loop
   char input[128];
   struct timespec ts;
 
   while (!game_over && shm_players[num_players] > 0) {
     if (autoplay) {
-      // Autoplay mode: automatic moves with delay
       ts.tv_sec = delay_ms / 1000;
       ts.tv_nsec = (delay_ms % 1000) * 1000000L;
       nanosleep(&ts, NULL);
 
-      // Check if game ended during sleep
       if (game_over || shm_players[num_players] <= 0)
         break;
 
-      // Signal PP to make next move
       kill(pp_pid, SIGUSR1);
 
-      // Wait for acknowledgment from BP
       wait_for_ack();
     } else {
-      // Interactive mode: wait for user command
       printf("+++ CP: Enter command: ");
       fflush(stdout);
 
@@ -432,7 +411,6 @@ int main(int argc, char *argv[]) {
         break;
       }
 
-      // Remove newline
       input[strcspn(input, "\n")] = 0;
 
       if (strcmp(input, "quit") == 0) {
@@ -440,9 +418,7 @@ int main(int argc, char *argv[]) {
         game_over = 1;
         break;
       } else if (strcmp(input, "next") == 0) {
-        // Signal PP to make next move
         kill(pp_pid, SIGUSR1);
-        // Wait for acknowledgment from BP
         wait_for_ack();
       } else if (strncmp(input, "delay ", 6) == 0) {
         delay_ms = atoi(input + 6);
@@ -458,7 +434,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // Game over
+  // game over
   if (shm_players[num_players] <= 0) {
     printf("\n╔══════════════════════════════════════════════════════╗\n");
     printf("║              ALL PLAYERS HAVE FINISHED!              ║\n");
@@ -467,9 +443,8 @@ int main(int argc, char *argv[]) {
 
   printf("+++ CP: Press ENTER to exit...");
   fflush(stdout);
-  getchar();
+  getchar(); // wait for enter
 
-  // Cleanup
   cleanup();
 
   return 0;

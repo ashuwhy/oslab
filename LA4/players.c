@@ -4,6 +4,9 @@
  *
  * PP manages player processes and coordinates turns via signals.
  * Each player process handles dice rolling and movement.
+ *
+ * Author: Ashutosh Sharma
+ * Roll: 23CS10005
  */
 
 #include <fcntl.h>
@@ -25,30 +28,24 @@
 int *shm_board = NULL;
 int *shm_players = NULL;
 int num_players = 0;
-int pipe_fd = -1;  // Write end of pipe to CP
-pid_t bp_pid = -1; // Board process PID
+int pipe_fd = -1;
+pid_t bp_pid = -1;
 pid_t player_pids[MAX_PLAYERS];
 int current_player = -1;
 volatile sig_atomic_t move_requested = 0;
 volatile sig_atomic_t should_exit = 0;
 
-// Player symbols
+// player symbols
 const char player_symbols[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-// For player process
 volatile sig_atomic_t player_move_signal = 0;
 
-// Signal handler for SIGUSR1 in PP - initiate move
 void pp_sigusr1_handler(int sig) { move_requested = 1; }
-
-// Signal handler for SIGUSR2 in PP - terminate
 void pp_sigusr2_handler(int sig) { should_exit = 1; }
-
-// Signal handler for SIGUSR1 in player - execute move
 void player_sigusr1_handler(int sig) { player_move_signal = 1; }
 
-// Roll dice with proper 6s handling
-// Returns: total dice value, or 0 if three 6s (cancelled)
+// roll dice with 6s handling
+// returns: total dice value, or 0 if three 6s (cancelled)
 int roll_dice(int player_idx) {
   int total = 0;
   int rolls = 0;
@@ -75,7 +72,7 @@ int roll_dice(int player_idx) {
     }
   }
 
-  // Three consecutive 6s cancel the move
+  // three consecutive 6s cancel the move
   if (rolls == 3 && all_sixes) {
     printf("= %d (X) Three 6's! Move cancelled.\n", total);
     return 0;
@@ -85,10 +82,10 @@ int roll_dice(int player_idx) {
   return total;
 }
 
-// Check if a cell is occupied by another player
+// check if a cell is occupied by another player
 int is_cell_occupied(int cell, int current_player_idx) {
   if (cell <= 0 || cell >= 100)
-    return 0; // Home and finish are not "occupied"
+    return 0; // home and finish are not "occupied"
 
   for (int i = 0; i < num_players; i++) {
     if (i != current_player_idx && shm_players[i] == cell) {
@@ -98,9 +95,9 @@ int is_cell_occupied(int cell, int current_player_idx) {
   return 0;
 }
 
-// Apply snakes and ladders, following chains
+// apply snakes and ladders following chains
 int apply_snakes_ladders(int pos, int player_idx) {
-  int visited[BOARD_SIZE] = {0}; // Prevent infinite loops
+  int visited[BOARD_SIZE] = {0}; // to prevent infinite loops
 
   while (pos > 0 && pos < 100 && shm_board[pos] != 0 && !visited[pos]) {
     visited[pos] = 1;
@@ -115,7 +112,7 @@ int apply_snakes_ladders(int pos, int player_idx) {
              pos, new_pos);
     }
 
-    // Check if new position is occupied
+    // check if new position is occupied
     if (is_cell_occupied(new_pos, player_idx)) {
       printf("    But cell %d is occupied! Staying at %d\n", new_pos, pos);
       break;
@@ -127,20 +124,18 @@ int apply_snakes_ladders(int pos, int player_idx) {
   return pos;
 }
 
-// Player process main function
+// player process main function
 void player_process(int player_idx) {
   srand(time(NULL) ^ (getpid() << 16) ^ (player_idx * 12345));
 
-  // Set up signal handler
   signal(SIGUSR1, player_sigusr1_handler);
-  signal(SIGUSR2, SIG_DFL); // Default handler for SIGUSR2 (terminate)
+  signal(SIGUSR2, SIG_DFL);
 
   printf("+++ Player %c started (PID %d)\n", player_symbols[player_idx],
          getpid());
   fflush(stdout);
 
   while (1) {
-    // Wait for signal to make a move
     pause();
 
     if (!player_move_signal)
@@ -149,9 +144,7 @@ void player_process(int player_idx) {
 
     int current_pos = shm_players[player_idx];
 
-    // Check if already finished
     if (current_pos == 100) {
-      // Signal BP to redraw (already at destination)
       kill(bp_pid, SIGUSR1);
       continue;
     }
@@ -160,18 +153,17 @@ void player_process(int player_idx) {
            current_pos);
     fflush(stdout);
 
-    // Roll dice
     int dice = roll_dice(player_idx);
 
     if (dice == 0) {
-      // Move cancelled due to three 6s
+      // move cancelled due to three 6s
       kill(bp_pid, SIGUSR1);
       continue;
     }
 
     int new_pos = current_pos + dice;
 
-    // Check for exceeding 100
+    // check for exceeding 100
     if (new_pos > 100) {
       printf("    Move not allowed: %d + %d = %d > 100\n", current_pos, dice,
              new_pos);
@@ -179,26 +171,26 @@ void player_process(int player_idx) {
       continue;
     }
 
-    // Check if target cell is occupied (before snakes/ladders)
+    // check if target cell is occupied (before snakes/ladders)
     if (new_pos < 100 && is_cell_occupied(new_pos, player_idx)) {
       printf("    Move not allowed: cell %d is occupied\n", new_pos);
       kill(bp_pid, SIGUSR1);
       continue;
     }
 
-    // Make the move
+    // make the move
     printf("    %c moves: %d -> %d\n", player_symbols[player_idx], current_pos,
            new_pos);
 
-    // Apply snakes and ladders (may chain)
+    // apply snakes and ladders (may chain)
     if (new_pos < 100) {
       new_pos = apply_snakes_ladders(new_pos, player_idx);
     }
 
-    // Update position
+    // update position
     shm_players[player_idx] = new_pos;
 
-    // Check for win
+    // check for win
     if (new_pos == 100) {
       int rank = num_players - shm_players[num_players] + 1;
       printf("    *** %c reaches destination! Rank: %d ***\n",
@@ -214,26 +206,25 @@ void player_process(int player_idx) {
       exit(0);
     }
 
-    // Signal BP to redraw
+    // signal BP to redraw
     kill(bp_pid, SIGUSR1);
   }
 }
 
-// Get next active player in round-robin
+// get next active player in round-robin
 int get_next_player() {
   for (int i = 0; i < num_players; i++) {
     current_player = (current_player + 1) % num_players;
-    // Check if player is still active (not at 100)
+    // check if player is still active (not at 100)
     if (shm_players[current_player] != 100) {
       return current_player;
     }
   }
-  return -1; // No active players
+  return -1; // no active players
 }
 
-// Player-Parent main function
+// player-parent main function
 void player_parent_process() {
-  // Set up signal handlers for PP
   signal(SIGUSR1, pp_sigusr1_handler);
   signal(SIGUSR2, pp_sigusr2_handler);
 
@@ -242,7 +233,6 @@ void player_parent_process() {
   printf("+++ PP: Creating %d player processes...\n\n", num_players);
   fflush(stdout);
 
-  // Fork player processes
   for (int i = 0; i < num_players; i++) {
     player_pids[i] = fork();
 
@@ -252,9 +242,9 @@ void player_parent_process() {
     }
 
     if (player_pids[i] == 0) {
-      // Child - player process
+      // child - player process
       player_process(i);
-      exit(0); // Should never reach here
+      exit(0); // should never reach here
     }
   }
 
@@ -265,9 +255,8 @@ void player_parent_process() {
   printf("-----------------------------------------------------\n\n");
   fflush(stdout);
 
-  // Main loop
+  // main loop
   while (!should_exit) {
-    // Wait for signal
     pause();
 
     if (should_exit)
@@ -276,36 +265,34 @@ void player_parent_process() {
     if (move_requested) {
       move_requested = 0;
 
-      // Check if any players remain
+      // check if any players remain
       if (shm_players[num_players] <= 0) {
         continue;
       }
 
-      // Get next active player
       int next = get_next_player();
       if (next < 0) {
         continue;
       }
 
-      // Signal the player to make their move
       kill(player_pids[next], SIGUSR1);
     }
   }
 
-  // Termination - send SIGUSR2 to all player processes
+  // termination - send SIGUSR2 to all player processes
   printf("\n+++ PP: Terminating player processes...\n");
   fflush(stdout);
 
   for (int i = 0; i < num_players; i++) {
     if (player_pids[i] > 0) {
-      // Check if still alive
+      // check if still alive
       if (kill(player_pids[i], 0) == 0) {
         kill(player_pids[i], SIGUSR2);
       }
     }
   }
 
-  // Wait for all children
+  // wait for all children
   for (int i = 0; i < num_players; i++) {
     if (player_pids[i] > 0) {
       waitpid(player_pids[i], NULL, 0);
@@ -334,14 +321,12 @@ int main(int argc, char *argv[]) {
   const char *fifo_path = argv[4];
   bp_pid = atoi(argv[5]);
 
-  // Open FIFO for writing to CP
   pipe_fd = open(fifo_path, O_WRONLY);
   if (pipe_fd < 0) {
     perror("open fifo");
     return 1;
   }
 
-  // Attach to shared memory segments
   shm_board = (int *)shmat(shm_id_board, NULL, SHM_RDONLY);
   if (shm_board == (int *)-1) {
     perror("shmat (board)");
@@ -363,15 +348,12 @@ int main(int argc, char *argv[]) {
   printf("------------------------------------------------------\n\n");
   fflush(stdout);
 
-  // Send our PID to CP
   char pid_msg[64];
   sprintf(pid_msg, "PID:%d\n", getpid());
   write(pipe_fd, pid_msg, strlen(pid_msg));
 
-  // Run player-parent process
   player_parent_process();
 
-  // Cleanup
   shmdt(shm_board);
   shmdt(shm_players);
 
